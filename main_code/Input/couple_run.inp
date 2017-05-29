@@ -1,0 +1,11 @@
+//status output
+1
+// N_load, relax
+20 0
+// N_MD_run
+500
+// R_MD, d_inter,d2
+300,12,8
+// SC (not using)
+100
+-200 200 -200 200 0 100

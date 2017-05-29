@@ -1,0 +1,202 @@
+units         metal
+dimension     3
+boundary      p p p
+atom_style    atomic
+atom_modify   map array
+
+neighbor      2 bin
+neigh_modify  delay 5
+
+# create geometry     first 3 lines is geometry in FEM, unit AA not lattice
+#-100 100 -100 100 150 250
+#-106 106 -106 106 147  253
+#-200 200 -200 200 100 300
+
+
+variable      dt1 equal 500
+variable      dt2 equal 50
+
+variable      a0 equal 3.52
+variable      Va equal v_a0*v_a0*v_a0/4
+
+variable      t1 equal 20000
+variable      t2 equal 00000
+variable      t3 equal 20500
+
+variable      dimlz equal 12
+variable      ddl  equal -0.0001
+lattice	      fcc ${a0} orient x 1 0 0  orient y 0 1 0 orient z 0 0 1
+variable      lbox equal 400
+
+# 288-312 interface region 
+# 280-288 stress gradually getting right
+# 312-325 SVC
+
+variable      RRremain equal 325
+variable      RRmobile equal 288
+variable      RRinside equal 280
+
+variable      xbox equal v_lbox/xlat
+variable      ybox equal v_lbox/ylat
+variable      Rremain equal v_RRremain/xlat
+variable      Rmobile equal v_RRmobile/xlat
+variable      Rinside equal v_RRinside/xlat
+
+
+
+#region	      mdbox block $(-v_xbox) $(v_xbox) $(-v_ybox) $(v_ybox) $(v_ddl) $(v_dimlz+v_ddl)
+region	      mdbox block -110 110 -110 110 $(v_ddl) $(v_dimlz+v_ddl)
+create_box    2 mdbox
+
+region	      atoms cylinder z 0 0 $(v_Rremain) $(v_ddl) $(v_dimlz+v_ddl)
+#region        atoms cylinder z 0 0 53.1 $(v_ddl) $(v_dimlz+v_ddl)
+create_atoms  1 box
+
+mass	1 58.71
+mass	2 58.71
+
+group	remain region atoms
+group   padding subtract all remain
+
+
+# define groups
+region	mobile cylinder z 0 0 $(v_Rmobile) INF INF
+#region	mobile cylinder z 0 0 47.3 INF INF
+group	mobile region mobile
+region	inside cylinder z 0 0 $(v_Rinside) INF INF
+#region	inside cylinder z 0 0 45.9 INF INF
+group	inside region inside
+
+variable      cracklen equal 100.0/ylat
+region	midleft  block INF 0.005 $(-v_cracklen) $(v_cracklen) INF INF
+region	midright block 0.006 INF $(-v_cracklen) $(v_cracklen) INF INF
+group	midleft  region midleft
+group	midright region midright
+neigh_modify exclude group midleft midright
+
+
+group	CTA subtract all mobile
+set	group CTA type 2
+
+# EAM potentials
+#
+pair_style	eam/alloy
+#pair_coeff	* * /home/jzhang/lammps/lammps-17Sep11/potentials/NiAlH_jea.eam.alloy Ni Ni
+pair_coeff	* * /home-2/jzhang74@jhu.edu/work/jiaxi/lammps/potential/Mishin-Ni-Al-2009.eam.alloy Ni Ni
+
+compute      new1 all temp
+compute      new2 mobile temp
+compute      new3 CTA temp
+velocity    all create 2 22934 temp new1
+
+compute     p all pressure new1 virial
+compute     pe all pe/atom
+compute     CNA all cna/atom 3.00
+compute     stress all stress/atom
+
+compute	    psum1 mobile reduce sum c_stress[1]
+compute	    psum2 mobile reduce sum c_stress[2]
+compute	    psum3 mobile reduce sum c_stress[3]
+compute	    psum4 mobile reduce sum c_stress[4]
+compute	    psum5 mobile reduce sum c_stress[5]
+compute	    psum6 mobile reduce sum c_stress[6]
+compute     esum  mobile reduce sum c_pe
+
+
+compute     SVCforce inside SVC/force 288
+
+variable    nmobile equal count(mobile)
+variable    Vmobile equal ${nmobile}*${Va}
+variable    mobilepe equal c_esum/v_nmobile 
+
+variable    pin1 equal c_psum1/vol
+variable    pin2 equal c_psum2/vol
+variable    pin3 equal c_psum3/vol
+
+variable    vcx equal vcm(mobile,x)
+variable    vcy equal vcm(mobile,y)
+variable    vcz equal vcm(mobile,z)
+
+fix	avestress all ave/atom 1 ${dt2} ${dt2} c_stress[1] c_stress[2] c_stress[3] c_stress[4] c_stress[5] c_stress[6]
+fix	avepe all ave/atom 1 ${dt2} ${dt2} c_pe
+fix	avep all ave/time 1 ${dt2} ${dt2} c_p[1] c_p[2] c_p[3]
+fix	avepin all ave/time 1 ${dt2} ${dt2} c_psum1 c_psum2 c_psum3 c_psum4 c_psum5 c_psum6
+
+# (ptr_lammps,'pallz','NULL',5,4,1,pall_z)
+
+variable    pin1 equal f_avepin[1]/v_Vmobile
+variable    pin2 equal f_avepin[2]/v_Vmobile
+variable    pin3 equal f_avepin[3]/v_Vmobile
+variable    pin4 equal f_avepin[4]/v_Vmobile
+variable    pin5 equal f_avepin[5]/v_Vmobile
+variable    pin6 equal f_avepin[6]/v_Vmobile
+
+variable    pallx equal f_avep[1]
+variable    pally equal f_avep[2]
+variable    pallz equal f_avep[3]
+
+thermo        ${dt2}
+timestep      0.002
+thermo_style  custom step temp c_new2 c_new3 pe etotal v_mobilepe lx ly lz f_avep[1] f_avep[2] f_avep[3] v_pin1 v_pin2 v_pin3
+
+fix     zu all store/state 1 zu
+variable zu atom f_zu
+
+fix	 ensemble all nvt temp 1.0 1.0 1 drag 0.4
+run	$(v_t1)
+
+#  store the curret ghost force as inital value
+timestep      0.000001
+delete_atoms group padding
+run	500
+
+fix     fstore all store/state 0 fx fy fz
+fix     fstore2 all store/state 10000000 fx fy fz
+fix     fstore3 all store/force 
+
+timestep      0.002
+variable  fgx atom -f_fstore[1]
+variable  fgy atom -f_fstore[2]
+variable  fgz atom -f_fstore[3]
+fix  surf CTA addforce v_fgx v_fgy v_fgz
+#  ghost force correction initialized
+
+#unfix	 ensemble
+#fix	 ensemble all nve
+fix	 pz all press/berendsen z 0 0 1 modulus 2000
+
+compute     Neigh all neighlist/atom 3.00 dist0
+compute	    disp all displace/atom
+fix	avedisp all ave/atom 1 ${dt1} ${dt1} c_disp[1] c_disp[2] c_disp[3]
+variable avedispx atom f_avedisp[1]
+variable avedispy atom f_avedisp[2]
+variable avedispz atom f_avedisp[3]
+fix    ustore all store/state 500 v_avedispx v_avedispy v_avedispz
+variable dux atom v_avedispx-f_ustore[1]
+variable duy atom v_avedispy-f_ustore[2]
+variable duz atom v_avedispz-f_ustore[3]
+
+
+#compute     Ft all fefp/atom 0 3.00 FeFp 0.7
+#compute     IVCFp all IVCFp 288 Ft
+
+# if tau set as 0.1 ps
+#variable coeff equal 1e-4
+
+
+
+
+#dump	snapshot3 all cfg 500 atom.*.cfg mass type xs ys zs id  f_avedisp[1] f_avedisp[2] f_avedisp[3]  f_avestress[1] f_avestress[2] fextx fexty fextz
+dump	snapshot3 all cfg 500 atom.*.cfg mass type xs ys zs id  ivc fextx fexty fextz fx f_fstore[1] f_fstore2[1] f_fstore3[1] v_fgx
+dump	snapshot4 inside cfg 500 inside.*.cfg mass type xs ys zs c_CNA f_avedisp[1] f_avedisp[2] f_avedisp[3] c_pe f_avestress[1] f_avestress[2] f_avestress[3] f_avestress[4]
+
+#dump    cfgFp  inside cfg 500 Fp.*.cfg mass type xs ys zs c_Ft[11] c_Ft[12] c_Ft[13] c_Ft[14] c_Ft[15] c_Ft[16] c_Ft[17] c_Ft[18] c_Ft[19]
+#dump    cfgFe  inside cfg 500 Fe.*.cfg mass type xs ys zs c_Ft[1] c_Ft[2] c_Ft[3] c_Ft[4] c_Ft[5] c_Ft[6] c_Ft[7] c_Ft[8] c_Ft[9] c_Ft[10]
+
+#fix	fext all external pf/ESCM ${dt1} 1 ${t3} 288 Fp
+fix	fext all external pf/ESCM ${dt1} 1 ${t3} 288
+#fix	fext all external pf/ESCM ${dt1} 1 0 288 Fp
+#fix	fext all external pf/ESCM ${dt1} 1 0 288
+fix     affine all deform 1 x delta 0 0 remap x
+#fix fixCA all analysis/crystal 500 3.1 /home-2/jzhang74@jhu.edu/opt/local_boost/CrystalAnalysis150115/patterns/default.db  fcc,fcc_isf,fcc_coherent_twin dislocations discl.*.vtk defectsurface surface_*.vtk
+fix      tcontrol CTA langevin 1 1 1 3821 gradient 280 330

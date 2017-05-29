@@ -1,0 +1,20 @@
+#!/bin/bash -l
+#SBATCH
+
+#SBATCH --job-name=Ni_angle0
+#SBATCH --time=12:00:00
+#SBATCH --nodes=3
+#SBATCH --ntasks-per-node=24
+#SBATCH -p parallel
+
+
+cd $SLURM_SUBMIT_DIR
+mkdir $SLURM_JOBID
+
+cp *.in $SLURM_JOBID
+cp *.inp $SLURM_JOBID
+cp *.dat $SLURM_JOBID
+cp ./lmp_CACP $SLURM_JOBID
+cd $SLURM_JOBID
+
+mpirun ./lmp_CACP 8 Ni_angle0.in  > outfile.CACP

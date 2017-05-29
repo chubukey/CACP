@@ -1,0 +1,8 @@
+//tramp
+0.0
+//traction (1) or displacement (2)
+3
+//screep/strain rate
+2
+100       150
+2.0e-4    2.0e-4

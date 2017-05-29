@@ -1,0 +1,4 @@
+//specify whether cyclic (1) or creep/constant strain rate(2)
+2
+//specify file name
+single
