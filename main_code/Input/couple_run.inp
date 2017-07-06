@@ -1,11 +1,8 @@
 //status output
 1
-// N_load, relax
+// N_load, N_relax: For every N_load + N_relax staggered steps, load will be averagely distributed into 0 - N_load, and no loading will be applied for N_load+1 - N_load + N_relax steps
 20 0
-// N_MD_run
+// N_MD_run: Number of MD timestep for each MD run in one staggered step. ( recommand around physical time 1 ps)
 500
-// R_MD, d_inter,d2
+// R_inter_center, d_inter1,d_inter2   R_inter_center: center of interface region, d_inter1+d_inter2 = d_inter
 300,12,8
-// SC (not using)
-100
--200 200 -200 200 0 100
