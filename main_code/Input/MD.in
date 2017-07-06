@@ -2,16 +2,12 @@ units         metal
 dimension     3
 boundary      p p p
 atom_style    atomic
+
+# coupled method has to have global Id map for all atoms, map array is necessary
 atom_modify   map array
 
 neighbor      2 bin
 neigh_modify  delay 5
-
-# create geometry     first 3 lines is geometry in FEM, unit AA not lattice
-#-100 100 -100 100 150 250
-#-106 106 -106 106 147  253
-#-200 200 -200 200 100 300
-
 
 variable      dt1 equal 500
 variable      dt2 equal 50
@@ -145,25 +141,27 @@ variable zu atom f_zu
 fix	 ensemble all nvt temp 1.0 1.0 1 drag 0.4
 run	$(v_t1)
 
-#  store the curret ghost force as inital value
-timestep      0.000001
+#####################################
+# This part use deadload ghost force correction method
+# calculate the ghost force based on difference before and after deleting the atoms
+# apply neagtive ghost force for commpensation
+#####################################
 delete_atoms group padding
-run	500
-
+run	0
 fix     fstore all store/state 0 fx fy fz
-fix     fstore2 all store/state 10000000 fx fy fz
-fix     fstore3 all store/force 
-
-timestep      0.002
 variable  fgx atom -f_fstore[1]
 variable  fgy atom -f_fstore[2]
 variable  fgz atom -f_fstore[3]
 fix  surf CTA addforce v_fgx v_fgy v_fgz
-#  ghost force correction initialized
+
 
 #unfix	 ensemble
 #fix	 ensemble all nve
-fix	 pz all press/berendsen z 0 0 1 modulus 2000
+
+timestep      0.002
+
+# for pressure control in coupled code, nose-hoover may have stability issue, berendsen is recommanded.
+fix	 pz all press/berendsen z 0 0 1 modulus 2000   
 
 compute     Neigh all neighlist/atom 3.00 dist0
 compute	    disp all displace/atom
@@ -176,14 +174,13 @@ variable dux atom v_avedispx-f_ustore[1]
 variable duy atom v_avedispy-f_ustore[2]
 variable duz atom v_avedispz-f_ustore[3]
 
-
-#compute     Ft all fefp/atom 0 3.00 FeFp 0.7
-#compute     IVCFp all IVCFp 288 Ft
+# For using local deformation gradient computation, 0: timestep of reference configuration 3.00: cutoff, 0.7: threshold of slip, 
+# 288 : number of interface nodes, consistent with type 4 b.c. defined in single.inp, Ft is the compute Id of fefp/atom.
+#compute     Ft all fefp/atom 0 3.00 FeFp 0.7  
+#compute     IVCFp all IVCFp 288 Ft    
 
 # if tau set as 0.1 ps
 #variable coeff equal 1e-4
-
-
 
 
 #dump	snapshot3 all cfg 500 atom.*.cfg mass type xs ys zs id  f_avedisp[1] f_avedisp[2] f_avedisp[3]  f_avestress[1] f_avestress[2] fextx fexty fextz
@@ -193,10 +190,24 @@ dump	snapshot4 inside cfg 500 inside.*.cfg mass type xs ys zs c_CNA f_avedisp[1]
 #dump    cfgFp  inside cfg 500 Fp.*.cfg mass type xs ys zs c_Ft[11] c_Ft[12] c_Ft[13] c_Ft[14] c_Ft[15] c_Ft[16] c_Ft[17] c_Ft[18] c_Ft[19]
 #dump    cfgFe  inside cfg 500 Fe.*.cfg mass type xs ys zs c_Ft[1] c_Ft[2] c_Ft[3] c_Ft[4] c_Ft[5] c_Ft[6] c_Ft[7] c_Ft[8] c_Ft[9] c_Ft[10]
 
-#fix	fext all external pf/ESCM ${dt1} 1 ${t3} 288 Fp
+####################################################
+# this command enables the coupling apply external force on interface atoms
+# fix	fixID group external pf/ESCM t1 t2 t3 n_inter
+# t1: couple run start timestep (before which is MD relaxation)
+# t2: per timestep force is applied, use 1
+# t3: per timestep force is updated(re-evaluated)
+##################################################
 fix	fext all external pf/ESCM ${dt1} 1 ${t3} 288
-#fix	fext all external pf/ESCM ${dt1} 1 0 288 Fp
-#fix	fext all external pf/ESCM ${dt1} 1 0 288
+
 fix     affine all deform 1 x delta 0 0 remap x
+
+#############################################
+# this command enables DXA in MD
+#############################################
 #fix fixCA all analysis/crystal 500 3.1 /home-2/jzhang74@jhu.edu/opt/local_boost/CrystalAnalysis150115/patterns/default.db  fcc,fcc_isf,fcc_coherent_twin dislocations discl.*.vtk defectsurface surface_*.vtk
+
+#############################################
+# this command is essential for temperature control for coupled system, compared with conventional langevin command in lammps
+# when use argument "gradient", stadium damping is used. drag coeffcient increase gradually from 0 to set value from r = r1 to r = r2. r1 r2 corresponds to boundary of interface region.
+###########################################
 fix      tcontrol CTA langevin 1 1 1 3821 gradient 280 330
